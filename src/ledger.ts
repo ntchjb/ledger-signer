@@ -9,7 +9,6 @@ import Eth from "@ledgerhq/hw-app-eth";
 // at bundle time; browsers do not get HID, for example. This maps a string
 // "type" to a Transport with create.
 import { transports } from "./ledger-transport";
-import { TransportError } from "@ledgerhq/hw-transport";
 
 const defaultPath = "44'/60'/0'/0/0";
 
@@ -72,11 +71,9 @@ export class LedgerSigner extends ethers.Signer {
           const result = await callback(eth);
           return resolve(result);
         } catch (error) {
-          if (error instanceof TransportError) {
-            const err = error as ITransportError;
-            if (err.id !== "TransportLocked") {
-              return reject(error);
-            }
+          let err = error as ITransportError;
+          if (err.id !== "TransportLocked") {
+            return reject(error);
           }
         }
         await waiter(100);
