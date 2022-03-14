@@ -11,121 +11,154 @@ import Eth from "@ledgerhq/hw-app-eth";
 // at bundle time; browsers do not get HID, for example. This maps a string
 // "type" to a Transport with create.
 import { transports } from "./ledger-transport";
+import { TransportError } from "@ledgerhq/hw-transport";
 
 const defaultPath = "44'/60'/0'/0/0";
 
 function waiter(duration: number): Promise<void> {
-   return new Promise((resolve) => {
-       setTimeout(resolve, duration);
-   });
+  return new Promise((resolve) => {
+    setTimeout(resolve, duration);
+  });
+}
+
+interface ITransportError extends Error {
+  name: "TransportError";
+  message: string;
+  stack?: string;
+  id: string;
 }
 
 export class LedgerSigner extends ethers.Signer {
-    readonly type: string;
-    readonly path: string
+  readonly _eth!: Promise<Eth>;
 
-    readonly _eth: Promise<Eth>;
+  constructor(
+    provider?: ethers.providers.Provider,
+    readonly type: string = "default",
+    readonly path: string = defaultPath
+  ) {
+    super();
 
-    constructor(provider?: ethers.providers.Provider, type?: string, path?: string) {
-        super();
-        if (path == null) { path = defaultPath; }
-        if (type == null) { type = "default"; }
+    ethers.utils.defineReadOnly(this, "path", path);
+    ethers.utils.defineReadOnly(this, "type", type);
+    ethers.utils.defineReadOnly(this, "provider", provider || undefined);
 
-        ethers.utils.defineReadOnly(this, "path", path);
-        ethers.utils.defineReadOnly(this, "type", type);
-        ethers.utils.defineReadOnly(this, "provider", provider || null);
-
-        const transport = transports[type];
-        if (!transport) { logger.throwArgumentError("unknown or unsupported type", "type", type); }
-
-        ethers.utils.defineReadOnly(this, "_eth", transport.create().then((transport) => {
-            const eth = new Eth(transport);
-            return eth.getAppConfiguration().then((config) => {
-                return eth;
-            }, (error) => {
-                return Promise.reject(error);
-            });
-        }, (error) => {
-            return Promise.reject(error);
-        }));
+    const transport = transports[type];
+    if (!transport) {
+      logger.throwArgumentError("unknown or unsupported type", "type", type);
     }
 
-    _retry<T = any>(callback: (eth: Eth) => Promise<T>, timeout?: number): Promise<T> {
-        return new Promise(async (resolve, reject) => {
-            if (timeout && timeout > 0) {
-                setTimeout(() => { reject(new Error("timeout")); }, timeout);
+    ethers.utils.defineReadOnly<LedgerSigner, "_eth">(
+      this,
+      "_eth",
+      transport.create().then(
+        (transport) => {
+          const eth = new Eth(transport);
+          return eth.getAppConfiguration().then(
+            (config) => {
+              return eth;
+            },
+            (error) => {
+              return Promise.reject(error);
             }
+          );
+        },
+        (error) => {
+          return Promise.reject(error);
+        }
+      )
+    );
+  }
 
-            const eth = await this._eth;
+  _retry<T = any>(
+    callback: (eth: Eth) => Promise<T>,
+    timeout?: number
+  ): Promise<T> {
+    return new Promise(async (resolve, reject) => {
+      if (timeout && timeout > 0) {
+        setTimeout(() => {
+          reject(new Error("timeout"));
+        }, timeout);
+      }
 
-            // Wait up to 5 seconds
-            for (let i = 0; i < 50; i++) {
-                try {
-                    const result = await callback(eth);
-                    return resolve(result);
-                } catch (error) {
-                    if (error.id !== "TransportLocked") {
-                        return reject(error);
-                    }
-                }
-                await waiter(100);
+      const eth = await this._eth;
+
+      // Wait up to 5 seconds
+      for (let i = 0; i < 50; i++) {
+        try {
+          const result = await callback(eth);
+          return resolve(result);
+        } catch (error) {
+          if (error instanceof TransportError) {
+            const err = error as ITransportError;
+            if (err.id !== "TransportLocked") {
+              return reject(error);
             }
-
-            return reject(new Error("timeout"));
-        });
-    }
-
-    async getAddress(): Promise<string> {
-        const account = await this._retry((eth) => eth.getAddress(this.path));
-        return ethers.utils.getAddress(account.address);
-    }
-
-    async signMessage(message: ethers.utils.Bytes | string): Promise<string> {
-        if (typeof(message) === 'string') {
-            message = ethers.utils.toUtf8Bytes(message);
+          }
         }
+        await waiter(100);
+      }
 
-        const messageHex = ethers.utils.hexlify(message).substring(2);
+      return reject(new Error("timeout"));
+    });
+  }
 
-        const sig = await this._retry((eth) => eth.signPersonalMessage(this.path, messageHex));
-        sig.r = '0x' + sig.r;
-        sig.s = '0x' + sig.s;
-        return ethers.utils.joinSignature(sig);
+  async getAddress(): Promise<string> {
+    const account = await this._retry((eth) => eth.getAddress(this.path));
+    return ethers.utils.getAddress(account.address);
+  }
+
+  async signMessage(message: ethers.utils.Bytes | string): Promise<string> {
+    if (typeof message === "string") {
+      message = ethers.utils.toUtf8Bytes(message);
     }
 
-    async signTransaction(transaction: ethers.providers.TransactionRequest): Promise<string> {
-        const tx = await ethers.utils.resolveProperties(transaction);
-        const baseTx: ethers.utils.UnsignedTransaction = {
-            chainId: (tx.chainId || undefined),
-            data: (tx.data || undefined),
-            gasLimit: (tx.gasLimit || undefined),
-            nonce: (tx.nonce ? ethers.BigNumber.from(tx.nonce).toNumber(): undefined),
-            type: tx.type,
-            to: (tx.to || undefined),
-            value: (tx.value || undefined),
-        };
+    const messageHex = ethers.utils.hexlify(message).substring(2);
 
-        if (tx.type === 2) {
-            baseTx.maxFeePerGas = tx.maxFeePerGas
-            baseTx.maxPriorityFeePerGas = tx.maxPriorityFeePerGas
-        } else {
-            baseTx.gasPrice = tx.gasPrice
-        }
+    const sig = await this._retry((eth) =>
+      eth.signPersonalMessage(this.path, messageHex)
+    );
+    sig.r = "0x" + sig.r;
+    sig.s = "0x" + sig.s;
+    return ethers.utils.joinSignature(sig);
+  }
 
-        const unsignedTx = ethers.utils.serializeTransaction(baseTx).substring(2);
-        // for resolution
-        // import ledgerService from '@ledgerhq/hw-app-eth/lib/services/ledger';
-        // const resolution = await ledgerService.resolveTransaction(rawTxHex);
-        const sig = await this._retry((eth) => eth.signTransaction(this.path, unsignedTx, null));
+  async signTransaction(
+    transaction: ethers.providers.TransactionRequest
+  ): Promise<string> {
+    const tx = await ethers.utils.resolveProperties(transaction);
+    const baseTx: ethers.utils.UnsignedTransaction = {
+      chainId: tx.chainId || undefined,
+      data: tx.data || undefined,
+      gasLimit: tx.gasLimit || undefined,
+      nonce: tx.nonce ? ethers.BigNumber.from(tx.nonce).toNumber() : undefined,
+      type: tx.type,
+      to: tx.to || undefined,
+      value: tx.value || undefined,
+    };
 
-        return ethers.utils.serializeTransaction(baseTx, {
-            v: ethers.BigNumber.from("0x" + sig.v).toNumber(),
-            r: ("0x" + sig.r),
-            s: ("0x" + sig.s),
-        });
+    if (tx.type === 2) {
+      baseTx.maxFeePerGas = tx.maxFeePerGas;
+      baseTx.maxPriorityFeePerGas = tx.maxPriorityFeePerGas;
+    } else {
+      baseTx.gasPrice = tx.gasPrice;
     }
 
-    connect(provider: ethers.providers.Provider): ethers.Signer {
-        return new LedgerSigner(provider, this.type, this.path);
-    }
+    const unsignedTx = ethers.utils.serializeTransaction(baseTx).substring(2);
+    // for resolution
+    // import ledgerService from '@ledgerhq/hw-app-eth/lib/services/ledger';
+    // const resolution = await ledgerService.resolveTransaction(rawTxHex);
+    const sig = await this._retry((eth) =>
+      eth.signTransaction(this.path, unsignedTx, null)
+    );
+
+    return ethers.utils.serializeTransaction(baseTx, {
+      v: ethers.BigNumber.from("0x" + sig.v).toNumber(),
+      r: "0x" + sig.r,
+      s: "0x" + sig.s,
+    });
+  }
+
+  connect(provider: ethers.providers.Provider): ethers.Signer {
+    return new LedgerSigner(provider, this.type, this.path);
+  }
 }

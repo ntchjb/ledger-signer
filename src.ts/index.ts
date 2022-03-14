@@ -2,6 +2,4 @@
 
 import { LedgerSigner } from "./ledger";
 
-export {
-    LedgerSigner
-};
+export { LedgerSigner };
