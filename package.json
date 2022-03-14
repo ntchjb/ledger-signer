@@ -1,20 +1,21 @@
 {
-  "author": "Nathachai Jaiboon",
+  "name": "@ntchjb/ledger-signer",
+  "version": "0.1.1",
   "description": "Ledger Hardware Wallet support for ethers.",
-  "version": "0.1.0",
+  "author": "Nathachai Jaiboon",
   "keywords": [
     "Ethereum",
     "ethers",
     "ledger"
   ],
   "license": "MIT",
-  "main": "./lib/index.js",
-  "types": "./lib/index.d.ts",
-  "name": "@ntchjb/ledger-signer",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": ["lib"],
   "publishConfig": {
     "access": "public"
   },
-  "repository": "git://github.com/ntchjb/ledger-signer",
+  "repository": "git+https://github.com/ntchjb/ledger-signer.git",
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },
