@@ -1,6 +1,6 @@
 {
   "name": "@ntchjb/ledger-signer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Ledger Hardware Wallet support for ethers.",
   "author": "Nathachai Jaiboon",
   "keywords": [
