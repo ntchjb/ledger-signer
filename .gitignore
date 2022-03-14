@@ -1,3 +1,4 @@
 lib/
 *.tsbuildinfo
 node_modules/
+.npmrc

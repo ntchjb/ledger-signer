@@ -2,3 +2,4 @@
 tsconfig.json
 lib._esm
 tsconfig.tsbuildinfo
+.npmrc

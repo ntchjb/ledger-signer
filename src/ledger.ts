@@ -1,5 +1,3 @@
-"use strict";
-
 import { ethers } from "ethers";
 
 import { version } from "./_version";
@@ -29,43 +27,29 @@ interface ITransportError extends Error {
 }
 
 export class LedgerSigner extends ethers.Signer {
-  readonly _eth!: Promise<Eth>;
+  readonly _eth: Promise<Eth>;
 
   constructor(
-    provider?: ethers.providers.Provider,
-    readonly type: string = "default",
+    readonly provider?: ethers.providers.Provider,
+    readonly type: keyof typeof transports = "default",
     readonly path: string = defaultPath
   ) {
     super();
 
-    ethers.utils.defineReadOnly(this, "path", path);
-    ethers.utils.defineReadOnly(this, "type", type);
-    ethers.utils.defineReadOnly(this, "provider", provider || undefined);
-
     const transport = transports[type];
-    if (!transport) {
+    if (transport === undefined) {
       logger.throwArgumentError("unknown or unsupported type", "type", type);
     }
 
-    ethers.utils.defineReadOnly<LedgerSigner, "_eth">(
-      this,
-      "_eth",
-      transport.create().then(
-        (transport) => {
-          const eth = new Eth(transport);
-          return eth.getAppConfiguration().then(
-            (config) => {
-              return eth;
-            },
-            (error) => {
-              return Promise.reject(error);
-            }
-          );
-        },
-        (error) => {
-          return Promise.reject(error);
-        }
-      )
+    this._eth = transport.create().then(
+      async (transport) => {
+        const eth = new Eth(transport);
+        await eth.getAppConfiguration();
+        return eth;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
     );
   }
 
